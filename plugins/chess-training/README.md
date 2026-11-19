@@ -21,6 +21,15 @@ Build output: `dist/chess-training/`, containing root manifest, bundled browser 
 
 **Do not install before deliberate read-only review.** After approval, copy **contents of `dist/chess-training/`**, not this source project, to the explicit plugin directory's `chess-training/`. Preserve any existing `data/`, refresh discovery, then deliberately enable/restart through the host. This implementation does not change the existing preview profile or running servers. Do not copy sample puzzles into real learning history.
 
+## Puzzle bank and opening reference (teacher AND prober)
+
+Two read-only tools let the agent use real material instead of recalling positions from memory:
+
+- `chess_training_find_puzzles` picks 1–5 puzzles from `bank/puzzles.tsv` by Lichess theme keys (all must match), an opening name fragment matched against the puzzle's opening tags, and a rating range. `exclude` skips ids already used in the conversation. Each result has a ready `payload` for `chess_training_question` / `chess_training_probe`: the FEN before the learner's first move, the Lichess solution as one authored line, and three progressive English hints per learner move (the theme idea, the piece, its square). Other legal moves, including alternative mates, roll back neutrally. The model receives the payloads; the learner-facing card shows only how many puzzles matched and their ratings.
+- `chess_training_find_openings` searches `bank/openings.tsv` by name fragment or ECO prefix and returns the line as legal UCI moves from the standard starting position (castling as the king's destination), shortest lines first, for building lessons.
+
+`scripts/build-bank.mjs <lichess_db_puzzle.csv> <chess-openings dir>` rebuilds both files. Puzzle selection keeps well-tested puzzles only (rating deviation ≤ 80, popularity ≥ 85, at least 1,000 plays), samples up to 1,500 per 200-point rating band, and adds up to 40 more per opening family so every family has material; every kept puzzle and every opening line is replayed through the plugin's own legality check. The bundled build (from the 2026-11-01 export) holds 18,897 puzzles across ratings 400–2800 and 151 opening families, and 3,865 opening lines.
+
 ## Optional engine evidence (teacher AND prober)
 
 `chess_training_analyze` accepts `{ "fen": "<full six-field standard FEN>", "candidates": ["e2e4"] }`; candidates are optional, otherwise 1–8 distinct legal standard UCI moves from that FEN. Invalid inputs are refused before worker creation. It does not change any puzzle/lesson schema or controller/store format. No analysis runs automatically at activation, pose, board navigation or manual submission.

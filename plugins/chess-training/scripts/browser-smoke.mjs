@@ -134,7 +134,7 @@ const activation = new AbortController(); let renderer;
 window.lessonSmoke = { calls: 0, submissions: 0, disposed: false };
 const unregister = activate({ signal: activation.signal,
   registerQuestionRenderer() { return () => {}; },
-  registerToolRenderer(value) { renderer = value; return () => {}; },
+  registerToolRenderer(value) { if (value.toolName === 'chess_training_lesson') renderer = value; return () => {}; },
   call() { window.lessonSmoke.calls++; throw new Error('Lessons must not call backend'); },
 });
 const artifact = { version: 1, title: 'Explore the centre', explanation: 'Public lesson explanation', orientation: 'white',

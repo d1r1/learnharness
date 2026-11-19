@@ -193,6 +193,22 @@ export function mountEditor(ctx, container, props, createBoard = Chessground) {
   };
 }
 
+// The search result holds solutions for the agent; the learner-facing card shows only a summary.
+export function mountPuzzleSearch(container, props) {
+  const text = container.ownerDocument.createElement('p');
+  text.className = 'chess-training';
+  if (props.state !== 'output-available') text.textContent = props.state === 'output-error' ? `Puzzle search failed: ${props.errorText || 'Tool failed.'}` : 'Choosing chess puzzles…';
+  else {
+    const picked = Array.isArray(props.output?.puzzles) ? props.output.puzzles : [];
+    const ratings = picked.map(p => p.rating).filter(Number.isFinite);
+    text.textContent = picked.length
+      ? `Chess puzzle bank: picked ${picked.length} of ${props.output.matched} matching (rating ${Math.min(...ratings)}–${Math.max(...ratings)}).`
+      : 'Chess puzzle bank: no matching puzzles.';
+  }
+  container.append(text);
+  return () => text.remove();
+}
+
 export function activate(ctx) {
   const unregisterLesson = ctx.registerToolRenderer({
     toolName: 'chess_training_lesson',
@@ -220,11 +236,13 @@ export function activate(ctx) {
       return () => { disposeReplay(); root.remove(); };
     },
   });
+  const unregisterSearch = ctx.registerToolRenderer({ toolName: 'chess_training_find_puzzles', mount: mountPuzzleSearch });
   let disposed = false;
   return () => {
     if (disposed) return;
     disposed = true;
     unregisterQuestion();
     unregisterLesson();
+    unregisterSearch();
   };
 }

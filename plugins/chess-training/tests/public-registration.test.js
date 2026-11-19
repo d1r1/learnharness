@@ -91,7 +91,7 @@ test('external built backend registers public probe and teach contracts and vali
   assert.equal(definition.validateAnswer, undefined, 'teacher review must not be a host grading hook');
   assert.equal(definition.teach.toolName, 'chess_training_question');
   assert.deepEqual([...handlers.keys()], ['open-puzzle', 'act-puzzle']);
-  assert.deepEqual(instructions.map(value => value.agents), [['teacher'], ['prober'], ['teacher', 'prober']]);
+  assert.deepEqual(instructions.map(value => value.agents), [['teacher'], ['prober'], ['teacher', 'prober'], ['teacher', 'prober']]);
   assert.match(instructions[1].text, /chess_training_probe/);
   assert.match(instructions[0].text, /chess_training_question/);
   const parameters = createPluginQuestionParameters(definition, 'teach');
@@ -153,7 +153,7 @@ test('backend engine distribution is outside public assets and includes exact of
 test('external lesson uses teacher-only public native tools and projects its artifact directly without model duplication', async t => {
   const f = await fixture(t);
   const { tools, instructions } = activateBackend(t, f);
-  assert.equal(tools.length, 2);
+  assert.equal(tools.length, 3);
   assert.deepEqual(tools[0].agents, ['teacher']);
   const [tool] = tools[0].create(Object.freeze({ chatId: 'isolated', agent: 'teacher' }));
   assert.equal(tool.name, 'chess_training_lesson');
@@ -331,16 +331,17 @@ test('external frontend activates public puzzle and lesson renderers without sid
   assert.equal(renderer.mountQuestion, undefined, 'no raw authored payload/duplicate question slot');
   assert.equal(typeof renderer.mountAnswerEditor, 'function');
   assert.equal(typeof renderer.mountAnswered, 'function');
-  assert.equal(toolRenderers.length, 1);
-  assert.equal(toolRenderers[0].toolName, 'chess_training_lesson');
-  assert.equal(typeof toolRenderers[0].mount, 'function');
-  assert.deepEqual(Object.keys(toolRenderers[0]).sort(), ['mount', 'toolName']);
+  assert.deepEqual(toolRenderers.map(r => r.toolName), ['chess_training_lesson', 'chess_training_find_puzzles']);
+  for (const toolRenderer of toolRenderers) {
+    assert.equal(typeof toolRenderer.mount, 'function');
+    assert.deepEqual(Object.keys(toolRenderer).sort(), ['mount', 'toolName']);
+  }
   assert.deepEqual(await files(f.directory), before);
   assert.deepEqual(await readdir(f.dataDirectory), []);
   await dispose();
-  assert.equal(removed, 2);
+  assert.equal(removed, 3);
   await dispose();
-  assert.equal(removed, 2);
+  assert.equal(removed, 3);
 });
 
 test('external distribution scopes every CSS selector, embeds artwork, and carries complete source and licenses', async t => {

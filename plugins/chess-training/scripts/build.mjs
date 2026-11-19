@@ -33,6 +33,7 @@ for (const file of ['manifest.json', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'READM
 await cp(path.join(root, 'licenses'), path.join(out, 'licenses'), { recursive: true });
 // Backend-only files: the host serves neither this directory nor this worker entry.
 await cp(path.join(root, 'engine'), path.join(out, 'engine'), { recursive: true });
+await cp(path.join(root, 'bank'), path.join(out, 'bank'), { recursive: true });
 await copyFile(path.join(root, 'src/engine-worker.cjs'), path.join(out, 'engine-worker.cjs'));
 for (const directory of ['src', 'scripts', 'tests']) await cp(path.join(root, directory), path.join(out, 'source', directory), { recursive: true });
 for (const file of ['package.json', 'package-lock.json']) await copyFile(path.join(root, file), path.join(out, 'source', file));

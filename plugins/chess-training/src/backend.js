@@ -2,10 +2,12 @@ import { createStore } from "./store.js";
 import { questionSchema, answerSchema, validatePuzzle } from "./core.js";
 import { lessonSchema, validateLesson } from "./lesson-core.js";
 import { createAnalyzer, analysisSchema } from "./analyze.js";
+import { createBank, puzzleSearchSchema, openingSearchSchema } from "./bank.js";
 
 export function activate(ctx) {
   const store = createStore(ctx.dataDirectory, { signal: ctx.signal });
   const analyzer = createAnalyzer(ctx.directory, ctx.signal);
+  const bank = createBank(ctx.directory);
   const registrations = [];
   let disposed = false;
   let disposal;
@@ -88,6 +90,36 @@ Use chess_training_lesson to present teaching material on an interactive board, 
     registrations.push(ctx.registerInstructions({
       agents: ["teacher", "prober"],
       text: "Use the actual chess_training_analyze tool for move-strength or alternative-quality claims; do not fabricate an engine evaluation. Source/legal validation establishes legality only; authored lines establish exercise membership only; engine-supported claims must cite the returned finite-budget evidence, with score perspective, cp versus mate and any bounds. Completed means the requested bounded searches returned evidence, not that chess truth was verified. Partial, budget, cancellation or failure never means a move is wrong. Missing MultiPV/alternatives cannot prove uniqueness. FEN omits repetition history. No automatic analysis of every lesson position, continuous board analysis or whole-game analyzer is provided. This is optional evidence, not an enforced strategic admission/receipt protocol: existing authored puzzles are NOT all engine-checked. Lessons may intentionally demonstrate bad but legal moves; do not strongest-move-gate them. Legal moves outside an exercise's authored lines have unestablished quality and roll back neutrally. Host manual submission, schemas and ordinary teacher/prober review remain unchanged; do not invent authoritative grades or verified:true.",
+    }));
+    registrations.push(ctx.registerTools({
+      agents: ["teacher", "prober"],
+      create: () => [{
+        name: "chess_training_find_puzzles",
+        label: "Chess puzzle bank",
+        description: "Pick 1–5 real puzzles from the bundled Lichess puzzle bank (about 19,000 well-tested puzzles, ratings 400–2800) by Lichess theme keys, opening name fragment and rating range. Each result carries a ready payload for chess_training_question or chess_training_probe: the FEN before the learner's first move, the Lichess solution line, and progressive English hints per learner move. Pass exclude with puzzle ids already used in this conversation.",
+        parameters: puzzleSearchSchema,
+        async execute(_toolCallId, input, signal) {
+          if (disposed || ctx.signal.aborted || signal?.aborted) throw new Error("Chess puzzle search cancelled");
+          const result = await bank.findPuzzles(input);
+          // The learner-visible card gets a spoiler-free summary; the model gets the payloads.
+          const summary = { matched: result.matched, puzzles: result.puzzles.map(({ id, rating, themes }) => ({ id, rating, themes })) };
+          return { content: [{ type: "text", text: JSON.stringify(result) }], details: summary };
+        },
+      }, {
+        name: "chess_training_find_openings",
+        label: "Chess opening reference",
+        description: "Look up named openings in the bundled lichess-org/chess-openings reference (about 3,900 lines with ECO codes) by name fragment or ECO code. Returns eco, name and the full line as legal UCI moves from the standard starting position, shortest lines first.",
+        parameters: openingSearchSchema,
+        async execute(_toolCallId, input, signal) {
+          if (disposed || ctx.signal.aborted || signal?.aborted) throw new Error("Chess opening search cancelled");
+          const result = await bank.findOpenings(input);
+          return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+        },
+      }],
+    }));
+    registrations.push(ctx.registerInstructions({
+      agents: ["teacher", "prober"],
+      text: "Prefer real puzzles over invented ones: call chess_training_find_puzzles and pass a returned payload to chess_training_question or chess_training_probe. Keep fen and lines exactly as returned; you may translate the hint texts into the learner's language, keeping the same number of hints per move. Choose a rating range that fits the learner's demonstrated level and adjust it from results, and pass every puzzle id already used in this conversation in exclude. Use themes for a tactic (fork, pin, skewer, mateIn2, hangingPiece, discoveredAttack, endgame, ...) and opening for puzzles that arose from a given opening. Bank lines are the Lichess solution only: other legal moves, including alternative mates, roll back neutrally. Never reveal a solution or the puzzle URL before the learner submits. For opening study, call chess_training_find_openings and build lessons from its exact UCI lines (from the standard starting position) instead of recalling move orders from memory.",
     }));
   } catch (error) {
     void dispose();

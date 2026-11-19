@@ -25,3 +25,5 @@ Plugin source: GPL-3.0-or-later (see LICENSE).
 The checkerboard is a CSS gradient, not a borrowed board image. No fonts or external network artwork are loaded. Stockfish runtime and embedded net load only from the local backend package. Build-time esbuild (MIT) and test-only jsdom (MIT) are not bundled into runtime code.
 
 Built packages include plugin corresponding source/build inputs under `source/` and the exact runtime library packages under `source/vendor/`, including their source and license files. Distribute these alongside bundles and notices; preserve GPL notices and offer corresponding source when distributing or deploying. This records selected licenses, not legal advice or a release authorization.
+
+Bundled data: `bank/puzzles.tsv` is derived from the Lichess puzzle database (https://database.lichess.org/#puzzles) and `bank/openings.tsv` from lichess-org/chess-openings (https://github.com/lichess-org/chess-openings); both are released under CC0-1.0 (public domain dedication).

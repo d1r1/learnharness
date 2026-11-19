@@ -358,14 +358,14 @@ test('public registration uses native Markdown fallback; answered rendering show
   const f = await fixture(t);
   let renderer;
   let unregistered = 0;
-  let lessonRenderer;
+  const toolRenderers = new Map();
   let lessonUnregistered = 0;
   const unregister = activate({
     signal: new AbortController().signal,
-    registerToolRenderer(value) { lessonRenderer = value; return () => lessonUnregistered++; },
+    registerToolRenderer(value) { toolRenderers.set(value.toolName, value); return () => lessonUnregistered++; },
     registerQuestionRenderer(value) { renderer = value; return () => unregistered++; },
   });
-  assert.equal(lessonRenderer.toolName, 'chess_training_lesson');
+  assert.deepEqual([...toolRenderers.keys()].sort(), ['chess_training_find_puzzles', 'chess_training_lesson']);
   assert.equal(renderer.id, 'puzzle'); assert.deepEqual(renderer.supportedContractVersions, [1]);
   assert.equal(Object.hasOwn(renderer, 'mountQuestion'), false);
   assert.equal(typeof renderer.mountAnswerEditor, 'function');
@@ -382,7 +382,7 @@ test('public registration uses native Markdown fallback; answered rendering show
   renderer.mountAnswered(container, { ...props, answer: { moves: ['d2d4'], incorrectAttempts: [], revealedHints: [] } });
   assert.match(container.textContent, /Moves: d2d4/);
   assert.doesNotMatch(container.textContent, /private hint|Private knight hint|e2e4|g1f3/);
-  unregister(); unregister(); assert.equal(unregistered, 1); assert.equal(lessonUnregistered, 1);
+  unregister(); unregister(); assert.equal(unregistered, 1); assert.equal(lessonUnregistered, 2);
 });
 
 test('real Chessground mounts, restores, accepts a UCI move and disposes in jsdom', async t => {

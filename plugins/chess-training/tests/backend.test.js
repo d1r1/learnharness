@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Compile } from "typebox/compile";
 import { activate } from "../src/backend.js";
 import { questionSchema, answerSchema, initialState } from "../src/core.js";
@@ -24,7 +25,7 @@ const lesson = () => ({
   ] }],
 });
 
-async function fixture(t) {
+async function fixture(t, { codeDirectory } = {}) {
   const directory = await fs.mkdtemp(join(tmpdir(), "chess-backend-"));
   const controller = new AbortController();
   const handlers = new Map();
@@ -34,7 +35,7 @@ async function fixture(t) {
   const removed = [];
   let dispose;
   const ctx = {
-    directory,
+    directory: codeDirectory ?? directory,
     dataDirectory: directory,
     signal: controller.signal,
     handle(name, handler) {
@@ -89,7 +90,7 @@ test("preserves probe and teach native puzzle schema without answer grading or m
 
 test("teacher-only lesson tool returns a detached immutable artifact without duplicating model content", async t => {
   const f = await fixture(t);
-  assert.equal(f.tools.length, 2);
+  assert.equal(f.tools.length, 3);
   assert.deepEqual(f.tools[0].agents, ["teacher"]);
   const [tool] = f.tools[0].create(Object.freeze({ chatId: "isolated", agent: "teacher" }));
   assert.equal(tool.name, "chess_training_lesson");
@@ -171,7 +172,7 @@ test("question refinement is synchronous, readable and validates only authored p
 
 test("teacher-only instructions cover authoring, hint semantics and ordinary full-answer review", async t => {
   const f = await fixture(t);
-  assert.equal(f.instructions.length, 3);
+  assert.equal(f.instructions.length, 4);
   assert.deepEqual(f.instructions[0].agents, ["teacher"]);
   const text = f.instructions[0].text;
   for (const expected of [/common question.*learner-facing condition/i, /full six-field.*FEN BEFORE the first learner move/, /complete legal standard UCI/, /odd length.*end on a learner move/, /shared per-learner-move/, /progressive hints/, /not a strategic guarantee/, /without code or solutions/, /ordinary final teacher review/, /answer\.moves/, /answer\.incorrectAttempts/, /answer\.revealedHints/]) assert.match(text, expected);
@@ -179,7 +180,7 @@ test("teacher-only instructions cover authoring, hint semantics and ordinary ful
 
 test("prober-only instructions require interactive evidence without bypassing diagnosis", async t => {
   const f = await fixture(t);
-  assert.deepEqual(f.instructions.map(value => value.agents), [["teacher"], ["prober"], ["teacher", "prober"]]);
+  assert.deepEqual(f.instructions.map(value => value.agents), [["teacher"], ["prober"], ["teacher", "prober"], ["teacher", "prober"]]);
   const text = f.instructions[1].text;
   for (const expected of [/chess_training_probe/, /actual interactive chess puzzles/, /not screenshots or text-only/, /do not ask the learner to install or locate/, /without teach-only type or nodeId/, /full six-field.*FEN BEFORE the first learner move/, /complete legal standard UCI/, /odd length.*end on a learner move/, /shared per-learner-move/, /only on explicit '\?' requests/, /host Submit button/, /optional host Your thinking/, /ordinary prober review/, /answer\.moves/, /answer\.incorrectAttempts/, /answer\.revealedHints/, /Do not fabricate an assessment, skip diagnosis or force probe_done/]) assert.match(text, expected);
 });
@@ -204,9 +205,9 @@ test("public handlers execute controller events and restore plugin-owned state, 
   await f.dispose();
   const removed = [...f.removed];
   assert.equal(f.handlers.size, 0);
-  assert.equal(removed.filter(name => name === "instructions").length, 3);
+  assert.equal(removed.filter(name => name === "instructions").length, 4);
   assert.equal(removed.filter(name => name === "question").length, 1);
-  assert.equal(removed.filter(name => name === "tools").length, 2);
+  assert.equal(removed.filter(name => name === "tools").length, 3);
   assert.deepEqual(new Set(removed), new Set(["open-puzzle", "act-puzzle", "question", "tools", "instructions"]));
   await f.dispose();
   assert.deepEqual(f.removed, removed);
@@ -265,4 +266,19 @@ test("activation failure unregisters already installed handlers", () => {
     registerQuestionType() { throw new Error("Registration refused"); },
   }), /Registration refused/);
   assert.deepEqual(removed, ["act-puzzle", "open-puzzle"]);
+});
+
+test("bank tools are shared by teacher/prober and the learner card never carries solutions", async t => {
+  const f = await fixture(t, { codeDirectory: join(dirname(fileURLToPath(import.meta.url)), "..") });
+  assert.deepEqual(f.tools[2].agents, ["teacher", "prober"]);
+  const [puzzles, openings] = f.tools[2].create({ agent: "teacher", chatId: "isolated" });
+  assert.deepEqual([puzzles.name, openings.name], ["chess_training_find_puzzles", "chess_training_find_openings"]);
+  const result = await puzzles.execute("call", { themes: ["mateIn2"], count: 2 });
+  const forModel = JSON.parse(result.content[0].text);
+  assert.equal(forModel.puzzles.length, 2);
+  assert.ok(forModel.puzzles.every(p => p.payload.lines[0].length === 3));
+  assert.doesNotMatch(JSON.stringify(result.details), /payload|lines|hints|fen|lichess\.org/);
+  const opening = await openings.execute("call", { query: "Italian Game" });
+  assert.deepEqual(opening.details.openings[0].moves.slice(0, 5), ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"]);
+  assert.match(f.instructions[3].text, /chess_training_find_puzzles/);
 });

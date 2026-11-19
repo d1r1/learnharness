@@ -81,6 +81,26 @@ export function isDictationLanguage(value: unknown): value is DictationLanguage 
 	return DICTATION_LANGUAGES.some(({ code }) => code === value);
 }
 
+export type DictationProvider = "deepgram" | "local";
+export type ModelUnloadAfter = "5m" | "1h" | "never";
+export const MODEL_UNLOAD_OPTIONS: readonly { value: ModelUnloadAfter; label: string }[] = [
+	{ value: "5m", label: "5 minutes" }, { value: "1h", label: "1 hour" }, { value: "never", label: "Never" },
+];
+export const isDictationProvider = (value: unknown): value is DictationProvider => value === "deepgram" || value === "local";
+export const isModelUnloadAfter = (value: unknown): value is ModelUnloadAfter => MODEL_UNLOAD_OPTIONS.some(option => option.value === value);
+
+export const RECOMMENDED_DICTATION_MODEL = {
+	name: "Parakeet Ultra Q8_0",
+	filename: "parakeet-ultra-Q8_0.gguf",
+	url: "https://huggingface.co/handy-computer/parakeet-ultra-gguf/resolve/39eeb55181f0d354fd934f06e92fd8d5037fed8e/parakeet-ultra-Q8_0.gguf",
+	size: 740363168,
+	sha256: "007a59761e9258779f189df396b50d12b83bb5b79e66df4b955c230d2f2a0a59",
+	license: "CC-BY-4.0",
+} as const;
+
+// Bound retained PCM in both the renderer and server (16 kHz mono, signed 16-bit).
+export const MAX_LOCAL_AUDIO_BYTES = 32 * 1024 * 1024;
+
 /** Only language varies. Keep the owner's tuned streaming parameters. */
 export function deepgramListenUrl(language: DictationLanguage): string {
 	return "wss://api.deepgram.com/v1/listen" +

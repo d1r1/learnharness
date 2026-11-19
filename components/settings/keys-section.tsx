@@ -43,6 +43,8 @@ import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DictationLanguageSetting } from "@/components/dictation-language";
+import { LocalDictationSettings } from "@/components/local-dictation-settings";
+import { useDictationLanguage } from "@/components/dictation-preference";
 
 /** One pi-ai provider with plain API-key auth (the Platform seam —
  *  derived from pi-ai's own env-key table; no drift possible). */
@@ -370,6 +372,7 @@ export function KeysSection({
 }: {
 	initialRow?: string;
 }) {
+	const dictationPreference = useDictationLanguage();
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
@@ -581,6 +584,8 @@ export function KeysSection({
 			</SettingsGroup>
 
 			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
+				{label === "Dictation" && <LocalDictationSettings />}
+				<div hidden={label === "Dictation" && dictationPreference.settings?.provider === "local"} className="space-y-2">
 				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
 					<KeyTableRow
 						key={status.id}
@@ -610,6 +615,7 @@ export function KeysSection({
 						>Deepgram API key</a> with the Member role or higher, then add it above.
 					</p>
 				</>}
+				</div>
 			</SettingsGroup>)}
 
 		</div>

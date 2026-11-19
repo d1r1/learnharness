@@ -7,6 +7,7 @@ import { usePluginDictation } from "../components/plugin-dictation.tsx";
 import { claimPluginInputFocus, dispatchFocusedPluginShortcut } from "../components/plugin-input-focus.ts";
 import { notifySettingsSaved } from "../components/settings-signal.ts";
 import { isDictationActive } from "../components/dictation-state.ts";
+import { PcmWorklet as Worklet } from "./helpers/pcm-worklet.ts";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -35,7 +36,6 @@ class AudioGraph {
 	audioWorklet = { addModule: async () => {} };
 	createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
 }
-class Worklet { port = {}; connect() {} disconnect() {} }
 let dispose: (() => Promise<void>) | undefined;
 let restore: (() => void) | undefined;
 let releaseFocus: (() => void)[] = [];

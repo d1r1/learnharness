@@ -33,6 +33,7 @@
 import { isBuiltinThemeId, type AgentSettings, type AppearanceSettings, type ChatSettings, type ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
+	localDictation,
 	allSegmentPaths,
 	clampChatLevel,
 	clampModelsLevels,
@@ -148,6 +149,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// Only a successful durable write changes admission. Increasing the
 	// limit immediately drains queued requests; decreasing never cancels active work.
 	refreshWorkerRequestAdmission();
+	if (section === "dictation") localDictation.configure(stored.dictation?.unloadAfter ?? "never");
 	const fileAccessError = fileAccessConfigurationError();
 	return Response.json({ settings: stored, ...(fileAccessError ? { fileAccessError } : {}) });
 }

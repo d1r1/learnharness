@@ -31,7 +31,7 @@ import type {
 import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
-import { isDictationLanguage } from "../core/dictation.ts";
+import { isDictationLanguage, isDictationProvider, isModelUnloadAfter } from "../core/dictation.ts";
 import { parseFileAccessSettings } from "../core/file-access.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
@@ -439,13 +439,28 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 	return { ok: true, settings };
 }
 
-/** dictation: { language?: one of Nova-3's supported language codes } */
+/** Whole dictation section; language applies to Deepgram, local models detect it. */
 export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<DictationSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	if (raw.language === undefined) return { ok: true, settings: {} };
-	if (!isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
-	return { ok: true, settings: { language: raw.language } };
+	const settings: DictationSettings = {};
+	if (raw.language !== undefined) {
+		if (!isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
+		settings.language = raw.language;
+	}
+	if (raw.provider !== undefined) {
+		if (!isDictationProvider(raw.provider)) return { ok: false, error: "Unsupported dictation provider" };
+		settings.provider = raw.provider;
+	}
+	if (raw.unloadAfter !== undefined) {
+		if (!isModelUnloadAfter(raw.unloadAfter)) return { ok: false, error: "Unsupported model unload timeout" };
+		settings.unloadAfter = raw.unloadAfter;
+	}
+	if (raw.modelPath !== undefined) {
+		if (typeof raw.modelPath !== "string" || raw.modelPath.length > 4096 || raw.modelPath.includes(String.fromCharCode(0)) || (raw.modelPath !== "" && (!path.isAbsolute(raw.modelPath) || !raw.modelPath.toLowerCase().endsWith(".gguf")))) return { ok: false, error: "Model must be an absolute GGUF file path" };
+		settings.modelPath = raw.modelPath;
+	}
+	return { ok: true, settings };
 }
 
 /** The custom endpoint's per-model pins (PATCH /api/custom-provider): the

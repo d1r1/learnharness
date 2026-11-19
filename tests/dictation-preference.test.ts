@@ -108,3 +108,17 @@ test("capture also waits for a write initiated as a pending read publishes its r
 	assert.equal(await store.getLanguage(), "multi");
 	off();
 });
+
+test("language edits preserve local provider/model/lifetime in the whole-section write", async () => {
+	let record = { language: "ru", provider: "local", modelPath: "/tmp/model.gguf", unloadAfter: "never" };
+	const store = createDictationLanguageStore(async (_url, init) => {
+		if (init?.method === "PUT") record = JSON.parse(init.body as string);
+		return Response.json({ settings: { version: 1, dictation: record } });
+	});
+	await store.load();
+	assert.equal(await store.save("en"), true);
+	assert.deepEqual(await store.getSettings(), { ...record, language: "en" });
+	assert.equal(record.provider, "local"); assert.equal(record.modelPath, "/tmp/model.gguf"); assert.equal(record.unloadAfter, "never");
+	assert.equal(await store.saveSettings({ unloadAfter: "5m" }), true);
+	assert.equal((await store.getSettings()).unloadAfter, "5m");
+});

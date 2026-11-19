@@ -9,11 +9,11 @@ Open **Settings → Providers** and configure a connection:
 - **Provider API keys:** use your own account and pay that provider's rates.
 - **Subscription connections:** ChatGPT, GitHub Copilot, and Grok use their respective sign-in flows and account limits. They do not silently fall back to API-key billing.
 - **[Claude Code](claude-code.md):** use a separately installed and authenticated CLI. Its own configuration controls routing and billing; this is not a subscription-only guarantee.
-- **[Custom endpoint](custom-providers.md):** connect one OpenAI-compatible server, including a local model server. LearnHarness does not install or download models.
+- **[Custom endpoint](custom-providers.md):** connect one OpenAI-compatible server, including a local model server. LearnHarness does not install or download conversation models.
 
 Choose **Strong**, **Cheap**, and **Vision** models in Settings. There are no factory model selections. New sessions start with Strong; background roles use their assigned slots or role overrides. A model selected inside an existing session belongs to that session and does not change background-role choices.
 
-Optional web search supports Tavily, Brave, Exa, Firecrawl, and hosted Ollama search; configure a key for the engine you want to use. Research can still fetch known URLs without a search key. Dictation has its own service key below.
+Optional web search supports Tavily, Brave, Exa, Firecrawl, and hosted Ollama search; configure a key for the engine you want to use. Research can still fetch known URLs without a search key. Dictation can use its own service key or a local speech model, as described below.
 
 ## Start a session
 
@@ -26,6 +26,12 @@ Choose **Practice** for problems rather than a lesson. Start from selected graph
 Sessions are saved locally, including earlier messages when context is compacted. The [keyboard guide](keyboard.md) covers submission, focus, question controls, and cancellation.
 
 ## Dictation
+
+Choose **Deepgram** or **Local** under **Settings → Providers → Dictation**. Existing installations keep Deepgram.
+
+For **Local** (macOS Apple Silicon), download the recommended **Parakeet Ultra Q8_0** model or choose a compatible, trusted GGUF file. Handy and an API key are not required. **Unload model after** defaults to **Never**, with **5 minutes** and **1 hour** as alternatives. Recognition stays local; the resulting text is still sent to your teacher when you submit it. See [local dictation](local-dictation.md).
+
+For **Deepgram**:
 
 1. Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher**, required for [short-lived token minting](https://developers.deepgram.com/reference/auth/tokens/grant).
 2. Add it under **Settings → Providers → Dictation** and choose the language below the key. **Multilingual** supports automatic recognition and mixed-language speech.

@@ -199,7 +199,8 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
 		},
 		dictation: {
-			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
+			...FACTORY_SETTINGS.dictation,
+			...record?.dictation,
 		},
 		agent: {
 			workerRequestConcurrency: agent.workerRequestConcurrency ?? FACTORY_SETTINGS.agent.workerRequestConcurrency,

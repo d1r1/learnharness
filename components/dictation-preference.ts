@@ -3,11 +3,11 @@
 import { useSyncExternalStore } from "react";
 import {
 	FACTORY_SETTINGS, isDictationLanguage, sanitizeUserSettings,
-	type DictationLanguage, type UserSettings,
+	type DictationLanguage, type DictationSettings, type UserSettings,
 } from "@/src/core";
 import { notifySettingsSaved, onSettingsSaved } from "@/components/settings-signal";
 
-const INITIAL = { language: undefined as DictationLanguage | undefined, saving: false, error: null as string | null };
+const INITIAL = { language: undefined as DictationLanguage | undefined, settings: undefined as DictationSettings | undefined, saving: false, error: null as string | null };
 
 /** One confirmed preference and one write in flight, shared by every surface.
  * The factory keeps transport tests isolated without a second persistence path.
@@ -41,11 +41,11 @@ export function createDictationLanguageStore(request: typeof fetch, saved: () =>
 				if (version !== revision) return getLanguage();
 				const language = record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language;
 				needsRead = false;
-				publish({ language, error: null });
+				publish({ language, settings: record?.dictation ?? {}, error: null });
 				return language;
 			} catch {
 				if (version !== revision) return getLanguage();
-				const message = "Could not load dictation language. Try again.";
+				const message = "Could not load dictation settings. Try again.";
 				publish({ error: message });
 				throw new Error(message);
 			} finally {
@@ -55,7 +55,7 @@ export function createDictationLanguageStore(request: typeof fetch, saved: () =>
 		return reading;
 	}
 
-	function save(language: DictationLanguage): Promise<boolean> {
+	function saveSettings(patch: DictationSettings): Promise<boolean> {
 		// A different selection must never inherit the previous write's success.
 		if (writing || snapshot.language === undefined) return Promise.resolve(false);
 		revision++;
@@ -64,18 +64,20 @@ export function createDictationLanguageStore(request: typeof fetch, saved: () =>
 			try {
 				const res = await request("/api/settings/dictation", {
 					method: "PUT", headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ language }),
+					body: JSON.stringify({ ...snapshot.settings, ...patch }),
 				});
 				if (!res.ok) throw new Error();
 				const body = await res.json() as { settings: UserSettings };
-				const confirmed = body.settings?.dictation?.language;
-				if (!isDictationLanguage(confirmed)) throw new Error();
+				const settings = body.settings?.dictation;
+				if (!settings || (settings.language !== undefined && !isDictationLanguage(settings.language))) throw new Error();
+				const confirmed = sanitizeUserSettings(body.settings)?.dictation;
+				if (!confirmed) throw new Error();
 				needsRead = false;
-				publish({ language: confirmed, error: null });
+				publish({ language: confirmed.language ?? FACTORY_SETTINGS.dictation.language, settings: confirmed, error: null });
 				saved();
 				return true;
 			} catch {
-				publish({ error: "Could not save dictation language. Try again." });
+				publish({ error: "Could not save dictation settings. Try again." });
 				return false;
 			} finally {
 				writing = null;
@@ -95,8 +97,12 @@ export function createDictationLanguageStore(request: typeof fetch, saved: () =>
 		}
 	}
 
+	async function getSettings() {
+		await getLanguage();
+		return { ...FACTORY_SETTINGS.dictation, ...snapshot.settings };
+	}
 	return {
-		load, save, getLanguage,
+		load, save: (language: DictationLanguage) => saveSettings({ language }), saveSettings, getLanguage, getSettings,
 		getSnapshot: () => snapshot,
 		getServerSnapshot: () => INITIAL,
 		subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
@@ -128,5 +134,5 @@ function subscribe(listener: () => void) {
 
 export function useDictationLanguage() {
 	const snapshot = useSyncExternalStore(subscribe, store.getSnapshot, store.getServerSnapshot);
-	return { ...snapshot, load: store.load, save: store.save, getLanguage: store.getLanguage };
+	return { ...snapshot, load: store.load, save: store.save, saveSettings: store.saveSettings, getLanguage: store.getLanguage, getSettings: store.getSettings };
 }

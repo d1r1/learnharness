@@ -19,6 +19,8 @@
  *                             needed — the 10s NET-0001 timeout only bites
  *                             a stream that stops SENDING).
  *
+ * A { type: "stop" } command freezes capture and sends the partial frame,
+ * then { type: "stopped" }; messages on this port preserve that order.
  * Ships as a static file under public/ so it rides the standalone bundle.
  * Plain JS by necessity (worklets run outside the module graph).
  */
@@ -27,9 +29,21 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
 		super();
 		this.frame = new Int16Array(2048);
 		this.count = 0;
+		this.stopped = false;
+		this.port.onmessage = ({ data }) => {
+			if (data?.type !== "stop") return;
+			this.stopped = true;
+			if (this.count) {
+				const tail = this.frame.subarray(0, this.count);
+				this.count = 0;
+				this.port.postMessage({ type: "audio", buffer: tail }, [tail.buffer]);
+			}
+			this.port.postMessage({ type: "stopped" });
+		};
 	}
 
 	process(inputs) {
+		if (this.stopped) return false;
 		const channel = inputs[0] && inputs[0][0];
 		if (!channel) return true; // no input yet — stay alive
 

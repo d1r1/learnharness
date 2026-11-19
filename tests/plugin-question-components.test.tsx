@@ -14,6 +14,7 @@ import type { PluginQuestionDraft } from "../components/session-core.ts";
 import type { QuestionRendererRegistration } from "../components/plugin-manager.ts";
 import type { ChatInput } from "../src/core/index.ts";
 import type { PluginQuestionEditorProps, PluginQuestionEditorHandle, PluginQuestionSnapshot, PluginQuestionRenderer } from "../src/core/plugin-questions.ts";
+import { PcmWorklet as Worklet } from "./helpers/pcm-worklet.ts";
 
 const saved: PluginQuestionSnapshot = { protocolVersion: 1, pluginId: "fixture", typeId: "code", label: "Code", variant: "probe", questionId: "q1", contractVersion: 1, occurrence: { messageId: "a", contentIndex: 0, toolCallId: "call", toolName: "code" }, input: { question: "Public question", payload: { reference: "PRIVATE_REFERENCE" } }, questionSchema: { type: "object" }, answerSchema: { type: "string" }, showThinking: false, requiresAnswerRefinement: false };
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; };
@@ -27,7 +28,6 @@ class Socket extends EventTarget {
 	final(text: string) { this.dispatchEvent(Object.assign(new Event("message"), { data: JSON.stringify({ type: "Results", is_final: true, channel: { alternatives: [{ transcript: text }] } }) })); }
 }
 class AudioGraph { state = "running"; destination = {}; audioWorklet = { addModule: async () => {} }; createMediaStreamSource() { return { connect() {}, disconnect() {} }; } }
-class Worklet { port = {}; connect() {} disconnect() {} }
 let cleanup: (() => Promise<void>) | undefined;
 let restore: (() => void) | undefined;
 afterEach(async () => { await cleanup?.(); restore?.(); cleanup = undefined; restore = undefined; });

@@ -233,7 +233,8 @@ for (const source of ["none", "file", "env"] as const) test(`Language is below t
 	const { KeysSection } = await import("../components/settings/keys-section.tsx");
 	await f.render(<KeysSection />);
 	const group = byTest("group-dictation");
-	const rows = group.lastElementChild!.children;
+	assert.ok(group.querySelector('[data-testid="local-dictation-settings"]'));
+	const rows = group.querySelector('[data-testid="key-deepgram_api_key"]')!.parentElement!.children;
 	assert.equal(rows[0]!.getAttribute("data-testid"), "key-deepgram_api_key");
 	assert.equal(rows[1]!.getAttribute("data-testid"), "row-dictation-language");
 	assert.equal(rows[2]!.getAttribute("data-testid"), "dictation-setup-hint");

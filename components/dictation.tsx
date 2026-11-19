@@ -4,14 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
-import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
+import { deepgramListenUrl, MAX_LOCAL_AUDIO_BYTES, type DictationLanguage, type DictationProvider } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
 import { dispatchFocusedPluginShortcut } from "@/components/plugin-input-focus";
 export { isDictationActive } from "@/components/dictation-state";
 
 /**
- * Voice dictation — the cloud engine (STT wave 1, 2026-09-17).
+ * Voice dictation — Deepgram streaming, or local batch ASR (docs/local-dictation.md):
+ * the local provider retains PCM until stop, then recognizes it through
+ * /api/stt/local. Capture, ownership, destinations and finish() are shared.
+ * The Deepgram tuning history below still describes its transport.
  *
  * Architecture (docs/research/stt.md): the renderer captures mic audio in
  * an AudioWorklet (public/worklets/pcm-capture.js → linear16 16kHz mono),
@@ -345,7 +348,7 @@ export function useDictation({ append, destination = "primary", disabled = false
 }): Dictation {
 	const primary = destination === "primary";
 	const owner = useRef(Symbol("dictation")).current;
-	const { getLanguage } = useDictationLanguage();
+	const { getSettings } = useDictationLanguage();
 	const [phase, setPhaseState] = useState<DictationPhase>("idle");
 	const phaseRef = useRef<DictationPhase>("idle");
 	const setPhase = useCallback((next: DictationPhase) => {
@@ -382,7 +385,14 @@ export function useDictation({ append, destination = "primary", disabled = false
 	/** Frames captured before the socket is OPEN (mitigation A): flushed in
 	 *  order on open; capped at 256 frames (≈32s) with the oldest dropped;
 	 *  cleared at teardown so a dead run's audio can't leak into the next. */
-	const pendingRef = useRef<ArrayBuffer[]>([]);
+	const pendingRef = useRef<Array<ArrayBuffer | Int16Array<ArrayBuffer>>>([]);
+	/** Set while stop() waits for the worklet to drain its partial frame. */
+	const captureStopRef = useRef<(() => void) | null>(null);
+	const providerRef = useRef<DictationProvider>("deepgram");
+	/** Local batch ASR: PCM retained until stop, bounded by MAX_LOCAL_AUDIO_BYTES. */
+	const audioRef = useRef<BlobPart[]>([]);
+	const audioBytesRef = useRef(0);
+	const localRequestRef = useRef<AbortController | null>(null);
 	const genRef = useRef(0); // stale-handler guard (dictate pattern)
 	const safetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reconnectsRef = useRef(0);
@@ -424,6 +434,11 @@ export function useDictation({ append, destination = "primary", disabled = false
 			safetyRef.current = null;
 		}
 		pendingRef.current = [];
+		captureStopRef.current = null;
+		audioRef.current = [];
+		audioBytesRef.current = 0;
+		localRequestRef.current?.abort();
+		localRequestRef.current = null;
 		for (const track of streamRef.current?.getTracks() ?? []) track.stop();
 		streamRef.current = null;
 		sourceRef.current?.disconnect();
@@ -455,7 +470,7 @@ export function useDictation({ append, destination = "primary", disabled = false
 				if (failed) waiter.reject(failed.error);
 				else waiter.resolve();
 			}
-			if (warmNext) warmTokens.refresh();
+			if (warmNext && providerRef.current === "deepgram") warmTokens.refresh();
 		};
 		if (appended && typeof (appended as PromiseLike<unknown>).then === "function") {
 			appendPendingRef.current = true;
@@ -464,6 +479,16 @@ export function useDictation({ append, destination = "primary", disabled = false
 			void Promise.resolve(appended).then(() => complete(null), (error: unknown) => complete({ error }));
 		} else complete(failure);
 	}, [flush, owner, setPhase]);
+
+	/** Capture could not be completed: discard the partial transcript and fail waiting submits. */
+	const failCapture = useCallback((message = "Could not finish audio capture. Try recording again.") => {
+		const failure = new Error(message);
+		const waiters = waitersRef.current.splice(0);
+		bufferRef.current = [];
+		setError(message);
+		cleanup();
+		for (const waiter of waiters) waiter.reject(failure);
+	}, [cleanup]);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
 	const openSocket = useCallback(
@@ -481,7 +506,10 @@ export function useDictation({ append, destination = "primary", disabled = false
 				// faster-than-realtime sends.
 				for (const frame of pendingRef.current) ws.send(frame);
 				pendingRef.current = [];
-				setPhase("recording");
+				// Stop arrived during the handshake: once the drained tail is sent, close.
+				if (phaseRef.current === "stopping") {
+					if (!captureStopRef.current) ws.send(JSON.stringify({ type: "CloseStream" }));
+				} else setPhase("recording");
 			});
 			ws.addEventListener("message", (ev) => {
 				if (gen !== genRef.current) return;
@@ -501,6 +529,10 @@ export function useDictation({ append, destination = "primary", disabled = false
 			});
 			ws.addEventListener("close", (ev) => {
 				if (gen !== genRef.current) return;
+				if (captureStopRef.current) {
+					failCapture();
+					return;
+				}
 				if (ev.code === 1000) {
 					// Our own CloseStream landing: finalize now — the stop path's
 					// safety net stays as the no-close backstop only.
@@ -527,7 +559,7 @@ export function useDictation({ append, destination = "primary", disabled = false
 				}
 			});
 		},
-		[cleanup, setPhase],
+		[cleanup, failCapture, setPhase],
 	);
 
 	const start = useCallback(async (destination?: DictationDestination) => {
@@ -551,7 +583,15 @@ export function useDictation({ append, destination = "primary", disabled = false
 		const gen = ++genRef.current;
 		let language: DictationLanguage;
 		try {
-			language = await getLanguage();
+			const settings = await getSettings();
+			language = settings.language;
+			providerRef.current = settings.provider;
+			if (settings.provider === "local") {
+				const response = await fetch("/api/stt/local");
+				const status = await response.json();
+				if (!response.ok || !status.supported) throw new Error(status.message ?? "Local dictation requires macOS on Apple Silicon.");
+				if (!status.modelAvailable) throw new Error("Choose or download a GGUF model in Settings → Providers → Dictation.");
+			}
 		} catch (e) {
 			if (gen !== genRef.current) return;
 			setError(e instanceof Error ? e.message : "Dictation language unavailable");
@@ -566,7 +606,7 @@ export function useDictation({ append, destination = "primary", disabled = false
 		// the token runs concurrently with it. 127.0.0.1 is a secure
 		// context, so getUserMedia works without TLS; macOS TCC prompts on
 		// first use.
-		const tokenPromise = warmTokens.mint();
+		const tokenPromise = providerRef.current === "local" ? Promise.resolve("") : warmTokens.mint();
 		tokenPromise.catch(() => {}); // surfaced below; no unhandled rejection
 		const micPromise = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -591,10 +631,21 @@ export function useDictation({ append, destination = "primary", disabled = false
 			workletRef.current = worklet;
 			worklet.port.onmessage = (e) => {
 				if (gen !== genRef.current) return;
-				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer };
-				if (msg.type === "level") {
+				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer | Int16Array<ArrayBuffer> };
+				if (msg.type === "stopped") {
+					captureStopRef.current?.();
+				} else if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
 				} else if (msg.type === "audio") {
+					if (providerRef.current === "local") {
+						audioBytesRef.current += msg.buffer!.byteLength;
+						if (audioBytesRef.current > MAX_LOCAL_AUDIO_BYTES) {
+							failCapture("Recording exceeds the 32 MiB local audio limit.");
+							return;
+						}
+						audioRef.current.push(msg.buffer!);
+						return;
+					}
 					const ws = wsRef.current;
 					if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg.buffer!);
 					// Mitigation A: not OPEN yet (handshake or reconnect gap) —
@@ -636,8 +687,35 @@ export function useDictation({ append, destination = "primary", disabled = false
 		if (gen !== genRef.current) return;
 		// Mitigation B: the handshake fires the moment the graph is live,
 		// overlapping any remaining token wait — mic-gated, never before it.
-		openSocket(gen, token, language);
-	}, [openSocket, cleanup, getLanguage, owner, primary, setPhase]);
+		if (providerRef.current === "local") {
+			if (streamRef.current) setPhase("recording");
+		} else openSocket(gen, token, language);
+	}, [openSocket, cleanup, failCapture, getSettings, owner, primary, setPhase]);
+
+	/** Local batch recognition of the retained PCM; the result flushes through cleanup(). */
+	const recognizeLocally = useCallback((gen: number) => {
+		const audio = new Blob(audioRef.current, { type: "application/octet-stream" });
+		audioRef.current = [];
+		audioBytesRef.current = 0;
+		if (!audio.size) {
+			cleanup();
+			return;
+		}
+		const request = new AbortController();
+		localRequestRef.current = request;
+		void fetch("/api/stt/local", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: audio, signal: request.signal })
+			.then(async (response) => {
+				const result = await response.json();
+				if (!response.ok || typeof result.text !== "string") throw new Error(result.message ?? "Local recognition failed.");
+				if (gen !== genRef.current) return;
+				bufferRef.current.push(result.text);
+				cleanup();
+			})
+			.catch((error: unknown) => {
+				if (gen !== genRef.current) return;
+				failCapture(error instanceof Error ? error.message : "Local recognition failed.");
+			});
+	}, [cleanup, failCapture]);
 
 	const stop = useCallback(() => {
 		const gen = genRef.current;
@@ -645,31 +723,55 @@ export function useDictation({ append, destination = "primary", disabled = false
 		setPhase("stopping");
 
 		// Mic dies FIRST — no more audio enqueues (dictate pattern). The
-		// per-run nodes die with it; the AudioContext stays (mitigation C).
+		// processor stays connected until it acknowledges its drained tail.
 		for (const track of streamRef.current?.getTracks() ?? []) track.stop();
 		streamRef.current = null;
 		sourceRef.current?.disconnect();
 		sourceRef.current = null;
-		workletRef.current?.disconnect();
-		workletRef.current = null;
+		const worklet = workletRef.current;
+		if (!worklet) {
+			cleanup();
+			return;
+		}
 
-		const ws = wsRef.current;
-		if (ws && ws.readyState === WebSocket.OPEN) {
-			try {
-				ws.send(JSON.stringify({ type: "CloseStream" }));
-			} catch {
-				cleanup();
+		captureStopRef.current = () => {
+			captureStopRef.current = null;
+			if (safetyRef.current) clearTimeout(safetyRef.current);
+			safetyRef.current = null;
+			worklet.disconnect();
+			workletRef.current = null;
+			if (providerRef.current === "local") {
+				recognizeLocally(gen);
 				return;
 			}
-			// Deepgram flushes remaining finals then closes; if it never
-			// does, the safety net ends the run anyway (dictate pattern).
+			const ws = wsRef.current;
+			if (ws && ws.readyState === WebSocket.OPEN) {
+				try {
+					ws.send(JSON.stringify({ type: "CloseStream" }));
+				} catch {
+					failCapture();
+					return;
+				}
+			}
+			// Deepgram flushes remaining finals then closes; if it never does,
+			// the safety net ends the run anyway (dictate pattern). A socket
+			// still opening sends the queued tail and CloseStream on open.
 			safetyRef.current = setTimeout(() => {
-				if (gen === genRef.current) cleanup();
+				if (gen !== genRef.current) return;
+				if (wsRef.current?.readyState !== WebSocket.OPEN) failCapture("Deepgram connection did not open. Try recording again.");
+				else cleanup();
 			}, 3000);
-		} else {
-			cleanup();
+		};
+		// The processor must acknowledge its drained tail within 3s.
+		safetyRef.current = setTimeout(() => {
+			if (gen === genRef.current) failCapture();
+		}, 3000);
+		try {
+			worklet.port.postMessage({ type: "stop" });
+		} catch {
+			if (gen === genRef.current) failCapture();
 		}
-	}, [cleanup, setPhase]);
+	}, [cleanup, failCapture, recognizeLocally, setPhase]);
 
 	const cancel = useCallback(() => {
 		if (phaseRef.current === "idle") return;
@@ -718,14 +820,19 @@ export function useDictation({ append, destination = "primary", disabled = false
 	// focused plugin control first, otherwise core fallback; Esc always
 	// cancels the actual recording owner rather than the focused widget.
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
+		let mounted = true;
+		// Pre-mint at mount (mitigation D), only for Deepgram — silent if keyless.
+		void getSettings().then((settings) => {
+			if (mounted && settings.provider === "deepgram") warmTokens.refresh();
+		}).catch(() => {});
 		return () => {
+			mounted = false;
 			// Navigation cancels capture: invalidate every pending await before
 			// releasing resources, and never append into a different page's input.
 			bufferRef.current = [];
 			cleanup(false);
 		};
-	}, [cleanup]);
+	}, [cleanup, getSettings]);
 	useEffect(() => registerController(owner, { primary, toggle, cancel }), [owner, primary, toggle, cancel]);
 
 	return {

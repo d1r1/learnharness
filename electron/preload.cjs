@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("lh", {
 	// uploads, copies, or DOM File IPC to main; sandbox/isolation stay on.
 	getPathForFile: (file) => webUtils.getPathForFile(file),
 	chooseAttachmentFolder: () => ipcRenderer.invoke("lh:attachment:pick", "folder"),
+	chooseDictationModel: () => ipcRenderer.invoke("lh:attachment:pick", "dictation-model"),
 	...(process.argv?.includes("--lh-web-subscriptions") ? {
 		subscriptionTransport: "web",
 		openSubscriptionBrowser: (action) => ipcRenderer.invoke("lh:subscriptions:web-browser", action),

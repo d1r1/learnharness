@@ -22,6 +22,11 @@ it("native attachment picker owns the dialog parent/options and returns ONE orig
 	assert.equal(await pickAttachmentPath(f.event, "folder", f.deps), "/course/empty folder");
 	assert.deepEqual(f.calls, [[f.win, { properties: ["openDirectory"] }]]);
 });
+it("model selection uses a fixed GGUF-only file dialog, never renderer-supplied options", async () => {
+	const f = fixture();
+	await pickAttachmentPath(f.event, "dictation-model", f.deps);
+	assert.deepEqual(f.calls, [[f.win, { properties: ["openFile"], title: "Choose dictation model", filters: [{ name: "GGUF models", extensions: ["gguf"] }] }]]);
+});
 for (const [canceled, filePaths] of [[true, ["/ignored"]], [false, []]] as const) it(`native cancellation/empty result returns null (${canceled})`, async () => {
 	const f = fixture();
 	f.deps.dialog.showOpenDialog = async () => ({ canceled, filePaths: [...filePaths] });

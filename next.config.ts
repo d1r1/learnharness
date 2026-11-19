@@ -89,6 +89,11 @@ const nextConfig: NextConfig = {
 			// from disk per ask — a directory no agent-composition read names.
 			"src/agent/prompts/side-chat/*.md",
 			"src/agent/image-processing/*.mjs",
+			"src/server/local-dictation-worker.mjs",
+			"node_modules/transcribe-cpp/**/*",
+			"node_modules/@transcribe-cpp/darwin-arm64-metal/**/*",
+			"node_modules/koffi/**/*",
+			"node_modules/@koromix/koffi-*/**/*",
 			"src/agent/image-processing/LICENSE",
 			"node_modules/@silvia-odwyer/photon-node/**/*",
 			// Wave E stage 2: resvg rasterizes visual-maker SVGs natively; same
@@ -115,6 +120,7 @@ const nextConfig: NextConfig = {
 	// The pi engine must stay external: its providers are runtime-loaded Node
 	// code (undici streams, catalog data) that breaks when bundled into routes.
 	serverExternalPackages: [
+		"transcribe-cpp", "koffi",
 		"@earendil-works/pi-ai",
 		"@earendil-works/pi-agent-core",
 		"pdfjs-dist", // sources v0: bundling breaks its node fake-worker path

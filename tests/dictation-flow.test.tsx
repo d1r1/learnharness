@@ -7,6 +7,8 @@ import { notifySettingsSaved } from "../components/settings-signal.ts";
 import { useDictationLanguage } from "../components/dictation-preference.ts";
 import { isDictationActive, useDictationActive } from "../components/dictation-state.ts";
 import type { UserSettings } from "../src/core/index.ts";
+import { MAX_LOCAL_AUDIO_BYTES } from "../src/core/dictation.ts";
+import { PcmWorklet as Worklet } from "./helpers/pcm-worklet.ts";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -39,7 +41,6 @@ class AudioGraph {
 	audioWorklet = { addModule: async () => {} };
 	createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
 }
-class Worklet { port = {}; connect() {} disconnect() {} }
 
 const globals = globalThis as Record<string, unknown>;
 let restore: (() => void) | undefined;
@@ -59,8 +60,12 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 		stops: 0,
 		appends: [] as string[],
 		claimed: undefined as ((text: string) => void) | undefined,
+		tokens: 0,
+		localPosts: [] as Blob[],
+		localReply: undefined as Promise<Response> | undefined,
 	};
 	Socket.all = [];
+	Worklet.all = [];
 	const previous = new Map<string, PropertyDescriptor | undefined>();
 	for (const [key, value] of Object.entries({
 		React, window: dom.window, document: dom.document, CustomEvent: dom.window.CustomEvent,
@@ -72,7 +77,12 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 		WebSocket: Socket, AudioContext: AudioGraph, AudioWorkletNode: Worklet,
 		IS_REACT_ACT_ENVIRONMENT: true,
 		fetch: async (url: string, init?: RequestInit) => {
-			if (url === "/api/stt/token") return Response.json({ token: "test-token" });
+			if (url === "/api/stt/token") { state.tokens++; return Response.json({ token: "test-token" }); }
+			if (url === "/api/stt/local") {
+				if (init?.method !== "POST") return Response.json({ supported: true, modelAvailable: true });
+				state.localPosts.push(init.body as Blob);
+				return state.localReply ?? Response.json({ text: "Local fixture transcript" });
+			}
 			if (url === "/api/settings") {
 				state.reads++;
 				if (state.nextRead) { const response = state.nextRead; state.nextRead = undefined; return response; }
@@ -373,4 +383,163 @@ test("microphone permission resolving after unmount immediately stops the late s
 	assert.equal(f.state.stops, 1);
 	assert.equal(Socket.all.length, 0);
 	assert.equal(isDictationActive(), false);
+});
+
+test("local dictation uses two toggles, never contacts Deepgram, and only appends after recognition", async () => {
+	const f = await fixture();
+	f.state.record.dictation = { provider: "local", modelPath: "/fixture/model.gguf" };
+	const targetAppends: string[] = [];
+	f.state.claimed = (text) => targetAppends.push(text);
+	await f.mount(); const tokens = f.state.tokens;
+	await act(async () => { window.dispatchEvent(new CustomEvent("lh:kbd-toggle-dictation")); });
+	assert.equal(f.dictation.phase, "recording"); assert.equal(Socket.all.length, 0);
+	const audio = new Int16Array([1, 2]);
+	Worklet.all.at(-1)!.port.onmessage!({ data: { type: "audio", buffer: audio } });
+	const result = deferred<Response>(); f.state.localReply = result.promise;
+	await act(async () => { window.dispatchEvent(new CustomEvent("lh:kbd-toggle-dictation")); });
+	assert.equal(f.dictation.phase, "stopping"); assert.equal(f.state.active, true);
+	assert.deepEqual(targetAppends, []); assert.equal(f.state.localPosts.length, 1);
+	assert.deepEqual(new Uint8Array(await f.state.localPosts[0]!.arrayBuffer()), new Uint8Array(audio.buffer));
+	await act(async () => { result.resolve(Response.json({ text: "My unchanged reasoning" })); });
+	assert.equal(f.dictation.phase, "idle"); assert.equal(f.state.active, false);
+	assert.deepEqual(targetAppends, ["My unchanged reasoning"]); assert.deepEqual(f.state.appends, []);
+	assert.equal(f.state.tokens, tokens, "local runs must not mint cloud tokens");
+});
+
+for (const provider of ["local", "deepgram"] as const) {
+	test(`${provider} waits for the processor tail before recognition and finish`, async () => {
+		const f = await fixture(); f.state.record.dictation = { provider, modelPath: "/fixture/model.gguf" };
+		const reply = deferred<Response>(); f.state.localReply = reply.promise;
+		await f.mount(); await act(async () => { f.dictation.toggle(); });
+		const socket = Socket.all[0]; if (socket) await act(async () => { socket.open(); });
+		const worklet = Worklet.all.at(-1)!; worklet.autoStop = false;
+		const samples = Float32Array.from({ length: 2055 }, (_, i) => (i % 31 - 15) / 20);
+		worklet.process(samples.subarray(0, 2048)); worklet.process(samples.subarray(2048));
+		let finished = false; let finish!: Promise<void>;
+		await act(async () => { finish = f.dictation.finish().then(() => { finished = true; }); f.dictation.stop(); });
+		assert.equal(f.state.stops, 1, "the microphone stops immediately");
+		assert.equal(f.dictation.phase, "stopping"); assert.equal(finished, false); assert.equal(f.state.active, true);
+		assert.equal(worklet.disconnected, false); assert.deepEqual(worklet.requests, [{ type: "stop" }]);
+		assert.equal(f.state.localPosts.length, 0); assert.ok(!socket?.sent.includes(JSON.stringify({ type: "CloseStream" })));
+		await act(async () => { worklet.completeStop(); });
+		assert.equal(worklet.disconnected, true); assert.equal(finished, false);
+		const expected = Array.from(Int16Array.from(samples, value => value < 0 ? value * 0x8000 : value * 0x7fff));
+		if (provider === "local") {
+			assert.equal(f.state.localPosts.length, 1);
+			assert.deepEqual(Array.from(new Int16Array(await f.state.localPosts[0]!.arrayBuffer())), expected);
+			await act(async () => { reply.resolve(Response.json({ text: "Unchanged thought" })); await finish; });
+		} else {
+			assert.deepEqual(socket!.sent.filter(ArrayBuffer.isView).flatMap(frame => Array.from(frame as Int16Array)), expected);
+			assert.equal(socket!.sent.at(-1), JSON.stringify({ type: "CloseStream" }));
+			await act(async () => { socket!.final("Unchanged thought"); socket!.end(); await finish; });
+		}
+		assert.equal(finished, true); assert.deepEqual(f.state.appends, ["Unchanged thought"]);
+	});
+
+	test(`${provider} fails explicitly after three seconds without a processor acknowledgement`, async t => {
+		const f = await fixture(); f.state.record.dictation = { provider, modelPath: "/fixture/model.gguf" };
+		await f.mount(); await act(async () => { f.dictation.toggle(); });
+		const socket = Socket.all[0]; if (socket) await act(async () => { socket.open(); socket.final("incomplete thought"); });
+		const worklet = Worklet.all.at(-1)!; worklet.autoStop = false; worklet.process(new Float32Array([0.5]));
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		let outcome!: Promise<unknown>;
+		await act(async () => { outcome = f.dictation.finish().then(() => null, error => error); });
+		await act(async () => { t.mock.timers.tick(2999); });
+		assert.equal(f.dictation.phase, "stopping"); assert.equal(f.state.localPosts.length, 0);
+		await act(async () => { t.mock.timers.tick(1); });
+		assert.ok(await outcome instanceof Error); assert.match(f.dictation.error!, /Could not finish audio capture/);
+		assert.equal(f.dictation.phase, "idle"); assert.equal(f.state.active, false); assert.equal(worklet.disconnected, true);
+		await act(async () => { worklet.completeStop(); });
+		assert.equal(f.state.localPosts.length, 0); assert.deepEqual(f.state.appends, []);
+	});
+}
+
+for (const action of ["cancel", "unmount"] as const) {
+	test(`${action} while awaiting audio tail discards late acknowledgement and speech`, async () => {
+		const f = await fixture(); f.state.record.dictation = { provider: "local", modelPath: "/fixture/model.gguf" };
+		await f.mount(); await act(async () => { f.dictation.toggle(); });
+		const worklet = Worklet.all.at(-1)!; worklet.autoStop = false; worklet.process(new Float32Array([0.5]));
+		await act(async () => { f.dictation.stop(); });
+		assert.equal(f.state.localPosts.length, 0); assert.equal(f.dictation.phase, "stopping");
+		if (action === "unmount") await f.unmount();
+		else await act(async () => { f.dictation.cancel(); });
+		await act(async () => { worklet.completeStop(); });
+		assert.equal(f.state.localPosts.length, 0); assert.deepEqual(f.state.appends, []); assert.equal(isDictationActive(), false);
+	});
+}
+
+for (const first of ["socket", "processor"] as const) {
+	test(`Deepgram opening after stop preserves tail and stopping state (${first} first)`, async () => {
+		const f = await fixture(); await f.mount(); await act(async () => { f.dictation.toggle(); });
+		const socket = Socket.all[0]!; const worklet = Worklet.all.at(-1)!; worklet.autoStop = false;
+		worklet.process(new Float32Array([0.5, -0.5]));
+		let finish!: Promise<void>; await act(async () => { finish = f.dictation.finish(); });
+		if (first === "socket") {
+			await act(async () => { socket.open(); }); assert.equal(f.dictation.phase, "stopping");
+			assert.equal(socket.sent.length, 0); await act(async () => { worklet.completeStop(); });
+		} else {
+			await act(async () => { worklet.completeStop(); }); assert.equal(f.dictation.phase, "stopping");
+			assert.equal(socket.sent.length, 0); await act(async () => { socket.open(); });
+		}
+		assert.equal(f.dictation.phase, "stopping");
+		assert.deepEqual(Array.from(socket.sent[0] as Int16Array), [16383, -16384]);
+		assert.equal(socket.sent[1], JSON.stringify({ type: "CloseStream" }));
+		await act(async () => { socket.final("whole thought"); socket.end(); await finish; });
+		assert.deepEqual(f.state.appends, ["whole thought"]);
+	});
+}
+
+test("a stopped Deepgram capture cannot hang forever waiting for the socket to open", async t => {
+	const f = await fixture(); await f.mount(); await act(async () => { f.dictation.toggle(); });
+	Worklet.all.at(-1)!.process(new Float32Array([0.5]));
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	let outcome!: Promise<unknown>; await act(async () => { outcome = f.dictation.finish().then(() => null, error => error); });
+	assert.equal(f.dictation.phase, "stopping");
+	await act(async () => { t.mock.timers.tick(3000); });
+	assert.ok(await outcome instanceof Error); assert.match(f.dictation.error!, /Deepgram connection did not open/);
+	assert.equal(f.state.active, false); assert.deepEqual(f.state.appends, []);
+});
+
+for (const code of [1000, 1006]) {
+	test(`a socket ending before audio acknowledgement cannot insert partial speech (${code})`, async () => {
+		const f = await fixture(); await f.mount(); await act(async () => { f.dictation.toggle(); });
+		const socket = Socket.all[0]!; await act(async () => { socket.open(); socket.final("partial thought"); });
+		const worklet = Worklet.all.at(-1)!; worklet.autoStop = false;
+		let outcome!: Promise<unknown>;
+		await act(async () => { outcome = f.dictation.finish().then(() => null, error => error); socket.end(code); });
+		assert.ok(await outcome instanceof Error); assert.equal(Socket.all.length, 1);
+		await act(async () => { worklet.completeStop(); });
+		assert.deepEqual(f.state.appends, []); assert.equal(f.dictation.phase, "idle");
+	});
+}
+
+test("a broken processor port rejects finish instead of recognizing incomplete audio", async () => {
+	const f = await fixture(); f.state.record.dictation = { provider: "local", modelPath: "/fixture/model.gguf" };
+	await f.mount(); await act(async () => { f.dictation.toggle(); });
+	const worklet = Worklet.all.at(-1)!; worklet.process(new Float32Array([0.5]));
+	worklet.port.postMessage = () => { throw new Error("Fixture closed port"); };
+	let outcome!: Promise<unknown>; await act(async () => { outcome = f.dictation.finish().then(() => null, error => error); });
+	assert.ok(await outcome instanceof Error); assert.match(f.dictation.error!, /Could not finish audio capture/);
+	assert.equal(f.state.localPosts.length, 0); assert.deepEqual(f.state.appends, []); assert.equal(worklet.disconnected, true);
+});
+
+test("the final partial frame still obeys the local capture limit", async () => {
+	const f = await fixture(); f.state.record.dictation = { provider: "local", modelPath: "/fixture/model.gguf" };
+	await f.mount(); await act(async () => { f.dictation.toggle(); });
+	const worklet = Worklet.all.at(-1)!;
+	worklet.port.onmessage!({ data: { type: "audio", buffer: new ArrayBuffer(MAX_LOCAL_AUDIO_BYTES - 2) } });
+	worklet.process(new Float32Array([0.5, -0.5]));
+	let outcome!: Promise<unknown>; await act(async () => { outcome = f.dictation.finish().then(() => null, error => error); });
+	assert.ok(await outcome instanceof Error); assert.match(f.dictation.error!, /32 MiB/);
+	assert.equal(f.state.localPosts.length, 0); assert.deepEqual(f.state.appends, []); assert.equal(f.state.active, false);
+});
+
+test("a local recognition error never switches to cloud or changes the existing draft", async () => {
+	const f = await fixture(); f.state.record.dictation = { provider: "local", modelPath: "/fixture/model.gguf" };
+	await f.mount(); await act(async () => { f.dictation.toggle(); });
+	Worklet.all.at(-1)!.port.onmessage!({ data: { type: "audio", buffer: new Uint8Array([1, 0]).buffer } });
+	f.state.localReply = Promise.resolve(Response.json({ message: "Fixture model failed" }, { status: 500 }));
+	await act(async () => { f.dictation.toggle(); });
+	assert.equal(f.dictation.phase, "idle"); assert.match(f.dictation.error!, /Fixture model failed/);
+	assert.deepEqual(f.state.appends, []); assert.equal(Socket.all.length, 0);
 });

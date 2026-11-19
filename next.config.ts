@@ -92,6 +92,7 @@ const nextConfig: NextConfig = {
 			"src/server/local-dictation-worker.mjs",
 			"node_modules/transcribe-cpp/**/*",
 			"node_modules/@transcribe-cpp/darwin-arm64-metal/**/*",
+			"node_modules/@transcribe-cpp/linux-x64-cpu-vulkan/**/*",
 			"node_modules/koffi/**/*",
 			"node_modules/@koromix/koffi-*/**/*",
 			"src/agent/image-processing/LICENSE",

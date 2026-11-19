@@ -589,7 +589,7 @@ export function useDictation({ append, destination = "primary", disabled = false
 			if (settings.provider === "local") {
 				const response = await fetch("/api/stt/local");
 				const status = await response.json();
-				if (!response.ok || !status.supported) throw new Error(status.message ?? "Local dictation requires macOS on Apple Silicon.");
+				if (!response.ok || !status.supported) throw new Error(status.message ?? "Local dictation requires macOS on Apple Silicon or Linux x64.");
 				if (!status.modelAvailable) throw new Error("Choose or download a GGUF model in Settings → Providers → Dictation.");
 			}
 		} catch (e) {

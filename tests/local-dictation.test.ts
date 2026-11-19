@@ -81,6 +81,19 @@ test("local model and settings validation reject nonmodels without loading a pro
 	for (const bad of [{ provider: "remote" }, { unloadAfter: "2h" }, { modelPath: "../../secret" }, { modelPath: "/tmp/not-a-model.txt" }]) assert.equal(parseDictationSettingsBody(bad).ok, false);
 });
 
+test("browser-only mode accepts a listed self-hosted name and keeps the same-origin gate", () => {
+	const previous = process.env.LH_ALLOWED_HOSTS;
+	process.env.LH_ALLOWED_HOSTS = "learn.example";
+	try {
+		const request = (headers: Record<string, string>) => new Request("http://learn.example/api/stt/local", { method: "POST", headers: { Host: "learn.example", ...headers } });
+		assertLocalDictationRequest(request({ Origin: "http://learn.example" }));
+		assert.throws(() => assertLocalDictationRequest(request({ Origin: "http://attacker.example" })), { status: 403 });
+		assert.throws(() => assertLocalDictationRequest(request({ Host: "unlisted.example" })), { status: 403 });
+	} finally {
+		if (previous === undefined) delete process.env.LH_ALLOWED_HOSTS; else process.env.LH_ALLOWED_HOSTS = previous;
+	}
+});
+
 test("PCM upload bounds actual bytes, handles chunking and rejects cross-origin/native requests", async () => {
 	const request = (headers: Record<string, string> = {}, body: BodyInit = new Uint8Array([1, 0, 2, 0])) => new Request("http://127.0.0.1:3000/api/stt/local", { method: "POST", headers: { "Content-Type": "application/octet-stream", ...headers }, body });
 	assert.deepEqual(await readLocalAudio(request()), Buffer.from([1, 0, 2, 0]));

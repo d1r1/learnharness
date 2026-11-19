@@ -1,9 +1,15 @@
-import { desktopAPIAuthorized } from "./desktop-access.ts";
+import { browserAPIRefusal, browserOnlyMode, desktopAPIAuthorized } from "./desktop-access.ts";
 import { MAX_LOCAL_AUDIO_BYTES } from "../core/dictation.ts";
 import { LocalDictationError, isLocalDictationError, localDictationSupported } from "./local-dictation.ts";
 
 /** Local-only native capability, also safe in browser-only development (no CORS). */
 export function assertLocalDictationRequest(request: Request) {
+	// A self-hosted browser-only server is reached by a public name; it gets the same host and same-origin gate as every other API route.
+	if (browserOnlyMode()) {
+		const refusal = browserAPIRefusal(request);
+		if (refusal) throw new LocalDictationError("forbidden", refusal, 403);
+		return;
+	}
 	const internal = new URL(request.url);
 	// Next standalone normalizes request.url to localhost; Host retains the window's origin.
 	let url: URL;
@@ -15,7 +21,7 @@ export function assertLocalDictationRequest(request: Request) {
 	}
 }
 export function assertLocalDictationSupported() {
-	if (!localDictationSupported()) throw new LocalDictationError("unsupported_platform", "Local dictation currently requires macOS on Apple Silicon.", 503);
+	if (!localDictationSupported()) throw new LocalDictationError("unsupported_platform", "Local dictation currently requires macOS on Apple Silicon or Linux x64.", 503);
 }
 export function localDictationFailure(error: unknown): Response {
 	if (error instanceof DOMException && error.name === "AbortError") return Response.json({ code: "canceled", message: "Dictation canceled." }, { status: 499, headers: { "Cache-Control": "no-store" } });

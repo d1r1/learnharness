@@ -80,7 +80,7 @@ export function LocalDictationSettings() {
 				</ThinSelect>
 			</SettingsRow>
 			<p role="status" className="px-1 text-xs text-muted-foreground">
-				{status?.supported === false ? "Local dictation currently requires macOS on Apple Silicon." : status?.busy ? "Recognizing…" : status?.loaded ? "Model loaded" : status?.modelAvailable ? "Model file found · loads on first use" : "Choose a compatible ASR GGUF file or download the recommended model."}
+				{status?.supported === false ? "Local dictation currently requires macOS on Apple Silicon or Linux x64." : status?.busy ? "Recognizing…" : status?.loaded ? "Model loaded" : status?.modelAvailable ? "Model file found · loads on first use" : "Choose a compatible ASR GGUF file or download the recommended model."}
 			</p>
 			<p className="px-1 text-[11px] text-muted-foreground/70">Audio is recognized locally. Language is detected by the model. No AI cleanup is applied. <a href="https://huggingface.co/handy-computer/parakeet-ultra-gguf" target="_blank" rel="noreferrer" className="underline">Parakeet Ultra · CC-BY-4.0</a></p>
 		</>}

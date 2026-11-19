@@ -3,7 +3,7 @@ import { open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { MAX_LOCAL_AUDIO_BYTES, type ModelUnloadAfter } from "../core/dictation.ts";
 
-export const localDictationSupported = () => process.platform === "darwin" && process.arch === "arm64";
+export const localDictationSupported = () => (process.platform === "darwin" && process.arch === "arm64") || (process.platform === "linux" && process.arch === "x64");
 export class LocalDictationError extends Error {
 	constructor(public code: string, message: string, public status = 500) { super(message); this.name = "LocalDictationError"; }
 }

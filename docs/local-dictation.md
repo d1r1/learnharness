@@ -2,7 +2,7 @@
 
 ## User-facing contract
 
-Settings → Providers → Dictation offers **Deepgram** and **Local**. Existing installations keep Deepgram. Local recognition currently supports macOS on Apple Silicon and does not require Handy, an API key, or a separate server.
+Settings → Providers → Dictation offers **Deepgram** and **Local**. Existing installations keep Deepgram. Local recognition currently supports macOS on Apple Silicon or Linux x64 and does not require Handy, an API key, or a separate server.
 
 - **Mod+D** or the microphone button starts recording. Repeat it to stop, recognize and append the transcript. Both providers share the same capture lifecycle: an active run always delivers into the destination it started with, even if focus moves.
 - **Enter / Submit** while recording or recognizing finishes dictation first: capture stops, recognition completes, the transcript lands in its destination, and only then is the submission sent. With the local provider this waits for recognition, so a cold model load delays the send rather than losing speech. A recognition failure shows its error and does not send.
@@ -22,7 +22,7 @@ Attribution: Parakeet Ultra by **Moondream**, GGUF conversion by **handy-compute
 
 ## Implementation
 
-The existing renderer AudioWorklet captures 16 kHz mono signed PCM16 and supplies the same meter for both providers. Local PCM is retained until explicit stop, bounded to **32 MiB** (roughly 17 minutes). Exceeding the bound ends capture with an explicit error, not a truncated transcript. It is sent to the local app server and is not written to disk. Model initialization and recognition run in an isolated, long-lived Node child through `transcribe-cpp` and its Apple Silicon Metal prebuilt package. This isolates native crashes; it is **not a security sandbox for untrusted model files**.
+The existing renderer AudioWorklet captures 16 kHz mono signed PCM16 and supplies the same meter for both providers. Local PCM is retained until explicit stop, bounded to **32 MiB** (roughly 17 minutes). Exceeding the bound ends capture with an explicit error, not a truncated transcript. It is sent to the local app server and is not written to disk. Model initialization and recognition run in an isolated, long-lived Node child through `transcribe-cpp` and its prebuilt package for the platform: Metal on Apple Silicon, CPU/Vulkan on Linux x64. In browser-only mode (a self-hosted server reached by name), the recognition route accepts the same hosts and same-origin requests as every other API route; the app itself adds no login, so such a server needs its own access gate. This isolates native crashes; it is **not a security sandbox for untrusted model files**.
 
 One server-wide engine admits one operation at a time, before reading the request body. Cancellation, a crash or timeout tears down the child before allowing another operation. Model lifetime is independent of page navigation; cancellation may release the model to stop in-flight native work. A successful run restarts its selected idle policy. Changes to the idle preference also apply to an already-loaded idle model.
 

@@ -1,0 +1,16 @@
+{
+  "name": "@learnharness/chess-training",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/analyze.test.js tests/engine-artifacts.test.js tests/core.test.js tests/lesson-core.test.js tests/store.test.js tests/backend.test.js tests/frontend.test.js tests/lesson-frontend.test.js",
+    "test:public": "node --test tests/public-registration.test.js",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "test:engine": "node scripts/engine-smoke.mjs"
+  },
+  "dependencies": { "@lichess-org/chessground": "10.5.0", "chessops": "0.15.1" },
+  "devDependencies": { "esbuild": "0.28.2", "jsdom": "26.1.0" }
+}

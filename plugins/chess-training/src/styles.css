@@ -1,0 +1,34 @@
+.chess-training { color: var(--foreground); font: inherit; display: grid; gap: .65rem; max-width: 36rem; }
+.chess-training .chess-training-board { width: min(calc(100% - 1.5rem), 22rem); aspect-ratio: 1; margin: .25rem 0 1.5rem 1.5rem; }
+.chess-training .cg-wrap coords { opacity: 1; color: #f0f0f0; background: #141414; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chess-training .cg-wrap coords.ranks { left: -24px; top: 0; width: 24px; align-items: stretch; }
+.chess-training .cg-wrap coords.files { left: 0; bottom: -24px; height: 24px; text-transform: lowercase; }
+.chess-training .cg-wrap coords coord { display: flex; align-items: center; justify-content: center; flex: 1 1 0; }
+.chess-training .cg-wrap coords.ranks coord { transform: none; }
+.chess-training cg-board { background-color: #f0d9b5; background-image: conic-gradient(#b58863 25%, #f0d9b5 0 50%, #b58863 0 75%, #f0d9b5 0); background-size: 25% 25%; }
+.chess-training cg-board square.move-dest { background: radial-gradient(rgba(20, 30, 20, .3) 22%, transparent 25%); }
+.chess-training cg-board square.last-move { background-color: rgba(100, 150, 40, .4); }
+.chess-training cg-board square.selected { background-color: rgba(20, 90, 50, .4); }
+.chess-training cg-board square.check { background: radial-gradient(ellipse at center, #e55 0%, transparent 75%); }
+.chess-training .chess-training-entry { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.chess-training input, .chess-training button { font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border, #888); border-radius: .35rem; padding: .4rem .6rem; min-height: 40px; }
+.chess-training input { width: 11rem; }
+.chess-training button { cursor: pointer; min-width: 40px; }
+.chess-training button:disabled, .chess-training input:disabled { opacity: .5; cursor: default; }
+.chess-training button:focus-visible, .chess-training input:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; }
+.chess-training p { margin: 0; }
+.chess-training .chess-training-moves { font-size: .85em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chess-training .chess-training-hints { padding-left: 1.5rem; margin: 0; }
+.chess-training .chess-training-promotion { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.chess-training [hidden] { display: none !important; }
+.chess-training.chess-training-lesson h3 { margin: 0; font-size: 1.1em; }
+.chess-training.chess-training-lesson .chess-training-memory { font-size: .85em; }
+.chess-training.chess-training-lesson .chess-training-lesson-explanation,
+.chess-training.chess-training-lesson .chess-training-annotation { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chess-training.chess-training-lesson .chess-training-annotation-list { margin: 0; padding-left: 1.5rem; font-size: .85em; }
+.chess-training.chess-training-lesson select { font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border, #888); border-radius: .35rem; padding: .4rem; min-height: 40px; max-width: 100%; }
+.chess-training.chess-training-lesson select:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; }
+.chess-training.chess-training-lesson cg-board square.chess-training-highlight-green { background-color: rgba(0, 140, 60, .45); }
+.chess-training.chess-training-lesson cg-board square.chess-training-highlight-red { background-color: rgba(220, 40, 40, .45); }
+.chess-training.chess-training-lesson cg-board square.chess-training-highlight-blue { background-color: rgba(30, 100, 230, .45); }
+.chess-training.chess-training-lesson cg-board square.chess-training-highlight-yellow { background-color: rgba(240, 200, 0, .5); }

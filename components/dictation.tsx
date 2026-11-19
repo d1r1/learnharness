@@ -219,6 +219,27 @@ function ensureAudioGraph(): { ctx: AudioContext; module: Promise<void> } {
 	return { ctx: sharedCtx, module: workletModule };
 }
 
+/** Locking or backgrounding the device suspends the shared context, and WebKit
+ * reports "interrupted" and sometimes never resumes it. Resume it briefly; if it
+ * still is not running, replace it (active mic capture lifts the autoplay gate). */
+// A function, so TypeScript does not keep a narrowed state across awaits.
+const isRunning = (ctx: AudioContext) => ctx.state === "running";
+
+export async function runningAudioGraph(): Promise<AudioContext> {
+	let { ctx, module } = ensureAudioGraph();
+	await module;
+	if (isRunning(ctx)) return ctx;
+	await Promise.race([ctx.resume().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 500))]);
+	if (isRunning(ctx)) return ctx;
+	void ctx.close().catch(() => {});
+	sharedCtx = null;
+	workletModule = null;
+	({ ctx, module } = ensureAudioGraph());
+	await module;
+	if (!isRunning(ctx)) await ctx.resume();
+	return ctx;
+}
+
 /** RMS (0..1) → normalized 0..1 across the audible dB window. */
 export function rmsToMeter(rms: number): number {
 	if (rms <= 0) return 0;
@@ -622,9 +643,7 @@ export function useDictation({ append, destination = "primary", disabled = false
 
 			// Mitigation C: app-lifetime context + memoized worklet module —
 			// per-run costs (context creation, module fetch) are gone.
-			const { ctx, module } = ensureAudioGraph();
-			await module;
-			if (ctx.state === "suspended") await ctx.resume();
+			const ctx = await runningAudioGraph();
 			if (gen !== genRef.current) return;
 
 			const worklet = new AudioWorkletNode(ctx, "pcm-capture");

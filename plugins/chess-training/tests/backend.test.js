@@ -182,7 +182,7 @@ test("prober-only instructions require interactive evidence without bypassing di
   const f = await fixture(t);
   assert.deepEqual(f.instructions.map(value => value.agents), [["teacher"], ["prober"], ["teacher", "prober"], ["teacher", "prober"]]);
   const text = f.instructions[1].text;
-  for (const expected of [/chess_training_probe/, /actual interactive chess puzzles/, /not screenshots or text-only/, /do not ask the learner to install or locate/, /without teach-only type or nodeId/, /full six-field.*FEN BEFORE the first learner move/, /complete legal standard UCI/, /odd length.*end on a learner move/, /shared per-learner-move/, /only on explicit '\?' requests/, /host Submit button/, /optional host Your thinking/, /ordinary prober review/, /answer\.moves/, /answer\.incorrectAttempts/, /answer\.revealedHints/, /Do not fabricate an assessment, skip diagnosis or force probe_done/]) assert.match(text, expected);
+  for (const expected of [/chess_training_probe/, /actual interactive chess puzzles/, /not screenshots or text-only/, /do not ask the learner to install or locate/, /without teach-only type or nodeId/, /full six-field.*FEN BEFORE the first learner move/, /complete legal standard UCI/, /odd length.*end on a learner move/, /shared per-learner-move/, /only on explicit '\?' requests/, /host Submit button/, /optional host Your thinking/, /ordinary prober review/, /answer\.moves/, /answer\.incorrectAttempts/, /answer\.revealedHints/, /Do not fabricate an assessment, skip diagnosis or force probe_done/, /never multiple choice or free text about moves/, /nextMovePuzzle/]) assert.match(text, expected);
 });
 
 test("public handlers execute controller events and restore plugin-owned state, never host answer", async t => {

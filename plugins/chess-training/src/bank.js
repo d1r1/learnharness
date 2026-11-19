@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseSquare } from "chessops/util";
+import { makeFen } from "chessops/fen";
+import { Chess } from "chessops/chess";
 import { startPosition, legalMove } from "./core.js";
 
 // Bundled read-only datasets built by scripts/build-bank.mjs from the Lichess CC0 exports.
@@ -87,8 +89,15 @@ function parseTsv(text, columns) {
   return rows;
 }
 
+/** A board question for an opening line: the position before its last move, answered by that move. */
+export function openingPuzzle(name, moves) {
+  const pos = Chess.default();
+  for (const uci of moves.slice(0, -1)) playUci(pos, uci);
+  return puzzlePayload(makeFen(pos.toSetup()), moves.slice(-1), [], `Recall the ${name} move order: what is the next move?`);
+}
+
 /** Turns one bank row into a chess_training_question payload: one authored line and per-move progressive hints. */
-export function puzzlePayload(fen, moves, themes) {
+export function puzzlePayload(fen, moves, themes, firstHint = themeHint(themes)) {
   const pos = startPosition(fen);
   const hints = [];
   moves.forEach((uci, ply) => {
@@ -97,7 +106,7 @@ export function puzzlePayload(fen, moves, themes) {
       const role = pos.board.get(parseSquare(from))?.role;
       const piece = PIECE_NAMES[role] ?? "piece";
       hints.push([
-        ply === 0 ? themeHint(themes) : "Keep going: find the most forcing continuation.",
+        ply === 0 ? firstHint : "Keep going: find the most forcing continuation.",
         `Use your ${piece}.`,
         `Move the ${piece} on ${from}.`,
       ]);
@@ -147,7 +156,8 @@ export function createBank(directory, { random = Math.random } = {}) {
       const matches = openings.filter(o => eco ? o.eco.startsWith(eco) : words.every(word => normalized(o.name).includes(word)));
       // Shortest lines first: the main line of a family precedes its sub-variations.
       matches.sort((a, b) => a.moves.length - b.moves.length || a.name.localeCompare(b.name));
-      return { source: "lichess-org/chess-openings (CC0)", matched: matches.length, openings: matches.slice(0, input.limit ?? 5) };
+      const openingsFound = matches.slice(0, input.limit ?? 5).map(o => ({ ...o, nextMovePuzzle: openingPuzzle(o.name, o.moves) }));
+      return { source: "lichess-org/chess-openings (CC0)", matched: matches.length, openings: openingsFound };
     },
   };
 }

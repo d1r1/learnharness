@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { createBank, puzzlePayload } from '../src/bank.js';
+import { createBank, puzzlePayload, openingPuzzle } from '../src/bank.js';
 import { validatePuzzle } from '../src/core.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -51,4 +51,17 @@ test('opening lookup by name and ECO returns legal lines, main line first', asyn
   assert.ok(eco.openings.length > 0 && eco.openings.every(o => o.eco === 'C60'));
   const castled = (await bank.findOpenings({ query: 'Ruy Lopez Closed', limit: 10 })).openings.find(o => o.moves.includes('e1g1'));
   assert.ok(castled, 'castling uses the king destination');
+});
+
+test('every opening yields a valid next-move board question', async () => {
+  const rows = (await readFile(path.join(root, 'bank/openings.tsv'), 'utf8')).trim().split('\n');
+  for (const row of rows) {
+    const [, name, moves] = row.split('\t');
+    const payload = openingPuzzle(name, moves.split(' '));
+    validatePuzzle(payload);
+    assert.equal(payload.lines[0].length, 1);
+  }
+  const [italian] = (await createBank(root).findOpenings({ query: 'Italian Game', limit: 1 })).openings;
+  assert.deepEqual(italian.nextMovePuzzle.lines, [['f1c4']]);
+  assert.match(italian.nextMovePuzzle.hints[0][0], /Italian Game move order/);
 });
